@@ -1,4 +1,7 @@
 import numpy as np
+import gymnasium as gym
+import multiprocessing as mp
+import copy
 
 class Normalizer():
     def __init__(self, input_dim):
@@ -16,12 +19,36 @@ class Normalizer():
 
     def normalize(self, inputs):
         obs_mean = self.mean
-        obs_std = np.sqrt(self.var)
+        obs_std = np.sqrt(np.maximum(self.var, 1e-2))
         return (inputs - obs_mean) / obs_std
     
 
+def roll_out(env_name, weight, normalizer, seed=42, horizon=2000):
+    env = gym.make(env_name)
+    np.random.seed(seed)
+    env.action_space.seed(seed)
+    s, _ = env.reset(seed=seed)
+    total_reward = 0
+    steps = 0
+
+    s_lst = [s,]
+
+    while steps < horizon:
+        norm_s = normalizer.normalize(s)
+        a = weight.dot(norm_s)
+        s, r, terminated, truncated, _ = env.step(a)
+        s_lst.append(s) # save unnormalized state
+        r = max(min(r, 1), -1) # reward clipping
+        total_reward += r
+        steps += 1
+        if terminated or truncated:
+            break
+
+    return total_reward, s_lst
+    
+
 """
-Implementation of ARS V2-t.
+Implementation of ARS V2.
 Parameters: 
  - alpha: step-size
  - N: number of directions sampled per iteration
@@ -29,70 +56,93 @@ Parameters:
  - b: number of top-performing directions to use
 """
 class ARS():
-    def __init__(self, input_dim, output_dim, alpha, N, nu, b, seed=42):
+    def __init__(self, input_dim, output_dim, alpha, N, nu, b, env_name, seed=42):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.alpha = alpha
         self.N = N
         self.nu = nu
         self.b = b
+        self.env_name = env_name
         self.seed = seed
 
         self.normalizer = Normalizer(input_dim)
-        self.weights = np.zeros((self.output_dim, self.input_dim))
+        self.weight = np.zeros((self.output_dim, self.input_dim))
+
+        self.num_cores = mp.cpu_count()
 
         np.random.seed(self.seed)
 
-    def roll_out(self, w, env, training=True):
-        sigmoid = lambda x : x / np.sqrt(1 + x ** 2)
-
-        env.action_space.seed(self.seed)
-        s, _ = env.reset(seed=self.seed)
-        total_reward = 0
-        steps = 0
-        H = 2000
-
-        while steps < H:
-            if training:
-                self.normalizer.observe(s)
-            s = self.normalizer.normalize(s)
-            a = sigmoid(w.dot(s)) # restrict the action to be in the range [-1, 1]
-            s, r, terminated, truncated, _ = env.step(a)
-            total_reward += r
-            steps += 1
-            if terminated or truncated:
-                break
-
-        return total_reward
-
-    def train_one_iter(self, env):
+    def train_one_iter(self, num_iters):
         directions = np.random.standard_normal(
             (self.N, self.output_dim, self.input_dim)
         )
+
+        # Collect 2N rollouts of horizon H in parallel
+        with mp.Pool(self.num_cores) as pool:
+            pos_reward_lst = []
+            pos_state_lst = []
+            pos_ret = pool.starmap(
+                roll_out, 
+                [
+                    (
+                        self.env_name, 
+                        self.weight + self.nu * directions[i], 
+                        self.normalizer, 
+                        self.seed + i
+                    ) for i in range(self.N)
+                ]
+            )
+            for item in pos_ret:
+                pos_reward_lst.append(item[0])
+                pos_state_lst.append(item[1])
+
+            neg_reward_lst = []
+            neg_state_lst = []
+            neg_ret = pool.starmap(
+                roll_out, 
+                [
+                    (
+                        self.env_name, 
+                        self.weight - self.nu * directions[i], 
+                        self.normalizer, 
+                        self.seed + i
+                    ) for i in range(self.N)
+                ]
+            )
+            for item in neg_ret:
+                neg_reward_lst.append(item[0])
+                neg_state_lst.append(item[1])
+            
         
-        max_rewards = np.zeros(self.N)
-        pos_rewards = np.zeros(self.N)
-        neg_rewards = np.zeros(self.N)
-
-        for i in range(self.N):
-            pos_w = self.weights + self.nu * directions[i]
-            pos_rewards[i] = self.roll_out(pos_w, env)
-
-            neg_w = self.weights - self.nu * directions[i]
-            neg_rewards[i] = self.roll_out(neg_w, env)
-
-            max_rewards[i] = max(pos_rewards[i], neg_rewards[i])
+        pos_rewards = np.array(pos_reward_lst)
+        neg_rewards = np.array(neg_reward_lst)
 
         differences = pos_rewards - neg_rewards
 
-        idx = np.argsort(max_rewards)[-self.b:]
-        std = np.std(np.concatenate([pos_rewards[idx], neg_rewards[idx]]))
+        std = np.std(np.concatenate([pos_rewards, neg_rewards]))
 
-        self.weights += self.alpha / std * np.mean(
-            differences[idx][:, None, None] * directions[idx], axis=0
+        # Update weight
+        self.weight += self.alpha / std * np.mean(
+            differences[:, None, None] * directions, axis=0
         )
 
-        return self.roll_out(self.weights, env, training=False)
+        # Update normalizer
+        for s_lst in pos_state_lst:
+            for s in s_lst:
+                self.normalizer.observe(s)
+        for s_lst in neg_state_lst:
+            for s in s_lst:
+                self.normalizer.observe(s)
+
+        reward, _ = roll_out(
+            env_name=self.env_name, 
+            weight=self.weight, 
+            normalizer=self.normalizer, 
+            seed=num_iters
+        )
+
+        return reward, std
 
 
         

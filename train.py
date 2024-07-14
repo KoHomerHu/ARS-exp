@@ -5,23 +5,36 @@ import matplotlib.pyplot as plt
 import pickle
 
 if __name__ == '__main__':
-    env = gym.make('BipedalWalker-v3')
-    ars = ARS(input_dim=24, output_dim=4, alpha=0.02, N=30, nu=0.02, b=15, seed=42)
+    ars = ARS(
+        input_dim=24, 
+        output_dim=4, 
+        alpha=0.09, 
+        N=16, 
+        nu=0.06, 
+        b=16, 
+        env_name='BipedalWalker-v3', 
+        seed=42
+    )
     
     num_iters = 500
     total_rewards = []
     pbar = tqdm(range(num_iters), desc='Training ARS: ')
 
     for i in pbar:
-        reward = ars.train_one_iter(env)
+        reward, std = ars.train_one_iter(num_iters=i)
         total_rewards.append(reward)
-        pbar.set_postfix({'Reward': reward})
+        pbar.set_postfix(
+            {
+                'Reward': reward, 
+                'Std': std
+            }
+        )
 
     print('Training complete.')
     print('Weights: \n', ars.weights)
     normalizer_params = {
         'mean' : ars.normalizer.mean,
-        'mean_diff' : ars.normalizer.mean_diff,
+        'var' : ars.normalizer.var,
     }
     print('Normalizer params: \n', normalizer_params)
 
