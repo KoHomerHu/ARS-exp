@@ -12,7 +12,7 @@ if __name__ == '__main__':
         N=16, 
         nu=0.06, 
         b=16, 
-        env_name='BipedalWalker-v3', 
+        env_name='BipedalWalkerHardcore-v3', 
         seed=42
     )
     
@@ -31,7 +31,7 @@ if __name__ == '__main__':
         )
 
     print('Training complete.')
-    print('Weights: \n', ars.weights)
+    print('Weights: \n', ars.weight)
     normalizer_params = {
         'mean' : ars.normalizer.mean,
         'var' : ars.normalizer.var,
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     plt.plot(total_rewards)
     plt.xlabel('Iterations')
     plt.ylabel('Reward')
-    plt.title('ARS V2-t on BipedalWalker-v3')
+    plt.title('ARS V2 on BipedalWalkerHardcore-v3')
     plt.show()
 
     # Save rewards

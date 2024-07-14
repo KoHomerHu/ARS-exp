@@ -141,7 +141,7 @@ class ARS():
                 self.normalizer.observe(s)
 
         rendering=False
-        if num_iters % 50 == 0:
+        if num_iters != 0 and num_iters % 100 == 0:
             rendering=True
         reward, _ = roll_out(
             env_name=self.env_name, 
