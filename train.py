@@ -16,7 +16,7 @@ if __name__ == '__main__':
         seed=42
     )
     
-    num_iters = 500
+    num_iters = 300
     total_rewards = []
     pbar = tqdm(range(num_iters), desc='Training ARS: ')
 
@@ -50,7 +50,7 @@ if __name__ == '__main__':
 
     # Save weights
     with open('ars_v2t_bipedalwalker_weights.pkl', 'wb') as f:
-        pickle.dump(ars.weights, f)
+        pickle.dump(ars.weight, f)
 
     # Save normalizer
     with open('ars_v2t_bipedalwalker_normalizer.pkl', 'wb') as f:

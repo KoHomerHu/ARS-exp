@@ -23,8 +23,11 @@ class Normalizer():
         return (inputs - obs_mean) / obs_std
     
 
-def roll_out(env_name, weight, normalizer, seed=42, horizon=2000):
-    env = gym.make(env_name)
+def roll_out(env_name, weight, normalizer, seed=42, horizon=2000, rendering=False):
+    if rendering:
+        env = gym.make(env_name, render_mode='human')
+    else:
+        env = gym.make(env_name)
     np.random.seed(seed)
     env.action_space.seed(seed)
     s, _ = env.reset(seed=seed)
@@ -34,6 +37,8 @@ def roll_out(env_name, weight, normalizer, seed=42, horizon=2000):
     s_lst = [s,]
 
     while steps < horizon:
+        if rendering:
+            env.render()
         norm_s = normalizer.normalize(s)
         a = weight.dot(norm_s)
         s, r, terminated, truncated, _ = env.step(a)
@@ -135,11 +140,15 @@ class ARS():
             for s in s_lst:
                 self.normalizer.observe(s)
 
+        rendering=False
+        if num_iters % 50 == 0:
+            rendering=True
         reward, _ = roll_out(
             env_name=self.env_name, 
             weight=self.weight, 
             normalizer=self.normalizer, 
-            seed=num_iters
+            seed=num_iters,
+            rendering=rendering
         )
 
         return reward, std
